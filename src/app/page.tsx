@@ -11,8 +11,8 @@ export default function Home() {
           Your music. Zero ads.
           <br />
           <span className="inline-block bg-gradient-to-r from-pink-300 via-fuchsia-400 to-pink-500 bg-clip-text text-transparent drop-shadow-[0_1px_1px_rgba(0,0,0,0.65)]">
-              Beautiful. Personal. Fast.
-            </span>
+            Beautiful. Personal. Fast.
+          </span>
         </h1>
         <p className="mt-4 text-white/70">
           Upload your songs, build playlists, and play exactly what you want—anytime.
