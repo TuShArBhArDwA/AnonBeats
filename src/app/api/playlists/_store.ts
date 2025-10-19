@@ -6,7 +6,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
 
-export type Playlist = { id: string; name: string; createdAt: number; itemIds: string[] };
+export type Playlist = { id: string; name: string; createdAt: number; itemIds: string[]; coverUrl?: string; };
 export type Store = { version: number; updatedAt: number; playlists: Playlist[] };
 
 const PUBLIC_ID = 'anonbeats/meta/playlists';

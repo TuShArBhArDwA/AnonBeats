@@ -15,7 +15,7 @@ type ApiTrack = {
   duration?: number;
   coverUrl?: string;
 };
-type Playlist = { id: string; name: string; createdAt: number; itemIds: string[] };
+type Playlist = { id: string; name: string; createdAt: number; itemIds: string[]; coverUrl?: string; };
 type PlayerTrack = ApiTrack & { id: string };
 
 export default function PlaylistDetail() {
@@ -97,10 +97,10 @@ export default function PlaylistDetail() {
     return playlistTracks.reduce((acc, t) => acc + (durations[t.publicId] ?? t.duration ?? 0), 0);
   }, [playlistTracks, durations]);
 
-  const coverHero = useMemo(
-    () => playlistTracks[0]?.coverUrl || '/logo.jpeg',
-    [playlistTracks]
-  );
+  const coverHero = useMemo(() => {
+  if (playlist?.coverUrl) return playlist.coverUrl;
+  return playlistTracks[0]?.coverUrl || '/logo.jpeg';
+}, [playlist, playlistTracks]);
 
   const candidates = useMemo(() => {
     const missing = allTracks.filter((t) => !playlist?.itemIds.includes(t.publicId));
@@ -206,7 +206,7 @@ export default function PlaylistDetail() {
             <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-semibold truncate">{playlist.name}</h1>
               <div className="mt-1 flex items-center gap-3 text-sm text-white/70">
-                <span>{playlist.itemIds.length} track{playlist.itemIds.length !== 1 ? 's' : ''}</span>
+                <span>{playlistTracks.length} track{playlistTracks.length !== 1 ? 's' : ''}</span>
                 <span className="inline-flex items-center gap-1">
                   <Clock size={14} /> {fmtTotal(totalDurationSec)}
                 </span>

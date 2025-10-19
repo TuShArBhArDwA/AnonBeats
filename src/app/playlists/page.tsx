@@ -1,19 +1,14 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Play, Trash2 } from 'lucide-react';
+import { Play, Trash2, Image as ImageIcon } from 'lucide-react';
 import { usePlayer } from '@/lib/player-context';
 
-type Playlist = { id: string; name: string; createdAt: number; itemIds: string[] };
+type Playlist = { id: string; name: string; createdAt: number; itemIds: string[]; coverUrl?: string };
 type Track = {
-  publicId: string;
-  title: string;
-  artist?: string;
-  album?: string;
-  audioUrl: string;
-  duration?: number;
-  coverUrl?: string;
+  publicId: string; title: string; artist?: string; album?: string;
+  audioUrl: string; duration?: number; coverUrl?: string;
 };
 
 export default function PlaylistsPage() {
@@ -22,53 +17,101 @@ export default function PlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [name, setName] = useState('');
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trackMap = useMemo(() => new Map(tracks.map((t) => [t.publicId, t])), [tracks]);
 
-  async function refresh() {
-    try {
-      setLoading(true);
-      setError(null);
-      const [plRes, trRes] = await Promise.all([
-        fetch('/api/playlists', { cache: 'no-store' }),
-        fetch('/api/tracks', { cache: 'no-store' }),
-      ]);
-      const [pl, tr] = await Promise.all([plRes.json(), trRes.json()]);
-      setPlaylists(Array.isArray(pl) ? pl : []);
-      setTracks(Array.isArray(tr) ? tr : []);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load playlists');
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const [plRes, trRes] = await Promise.all([
+          fetch('/api/playlists', { cache: 'no-store' }),
+          fetch('/api/tracks', { cache: 'no-store' }),
+        ]);
+        const [pl, tr] = await Promise.all([plRes.json(), trRes.json()]);
+        setPlaylists(Array.isArray(pl) ? pl : []);
+        setTracks(Array.isArray(tr) ? tr : []);
+      } catch (e: any) {
+        setError(e?.message || 'Failed to load');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    if (!coverFile) { setPreview(''); return; }
+    const url = URL.createObjectURL(coverFile);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverFile]);
+
+  async function uploadCoverIfAny(): Promise<string | undefined> {
+    if (!coverFile) return undefined;
+    // Sign image upload
+    const sign = await fetch('/api/cloudinary/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: 'anonbeats/playlist-covers', tags: 'anonbeats,playlist-cover', context: name ? `name=${name}` : undefined }),
+    }).then((r) => r.json());
+
+    const form = new FormData();
+    form.append('file', coverFile);
+    form.append('api_key', sign.apiKey);
+    form.append('timestamp', String(sign.timestamp));
+    form.append('signature', sign.signature);
+    form.append('folder', sign.folder);
+    if (sign.tags) form.append('tags', sign.tags);
+    if (sign.context) form.append('context', sign.context);
+
+    const endpoint = `https://api.cloudinary.com/v1_1/${sign.cloudName}/image/upload`;
+    const res = await fetch(endpoint, { method: 'POST', body: form });
+    if (!res.ok) throw new Error('Cover upload failed');
+    const data = await res.json();
+    return data.secure_url as string;
+  }
 
   async function create() {
     try {
       if (!name.trim()) return;
       setCreating(true);
-      // Create
+
+      // 1) upload cover if present
+      const coverUrl = await uploadCoverIfAny();
+
+      // 2) create playlist with coverUrl
       const res = await fetch('/api/playlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: name.trim(), coverUrl }),
       });
       if (!res.ok) throw new Error(`Create failed: HTTP ${res.status}`);
       const p = await res.json();
-      // Optimistic + retry refresh after a short delay (Cloudinary raw indexing)
+
+      // optimistic + refresh after a tick for Cloudinary raw JSON indexing
       setPlaylists((prev) => [p, ...prev]);
       setName('');
+      setCoverFile(null);
+      setPreview('');
       setTimeout(() => refresh(), 600);
     } catch (e: any) {
       setError(e?.message || 'Failed to create playlist');
     } finally {
       setCreating(false);
     }
+  }
+
+  async function refresh() {
+    try {
+      const pl = await fetch('/api/playlists', { cache: 'no-store' }).then((r) => r.json());
+      setPlaylists(Array.isArray(pl) ? pl : []);
+    } catch {}
   }
 
   async function remove(id: string) {
@@ -83,22 +126,13 @@ export default function PlaylistsPage() {
   }
 
   function playAll(p: Playlist) {
-    const list = p.itemIds
-      .map((pid) => trackMap.get(pid))
-      .filter(Boolean) as Track[];
+    const list = p.itemIds.map((pid) => trackMap.get(pid)).filter(Boolean) as Track[];
     if (!list.length) return;
-    // Map to player shape (id required)
-    const queue = list.map((t) => ({
-      id: t.publicId,
-      publicId: t.publicId,
-      title: t.title,
-      artist: t.artist,
-      album: t.album,
-      audioUrl: t.audioUrl,
-      duration: t.duration,
-      coverUrl: t.coverUrl,
+    const q = list.map((t) => ({
+      id: t.publicId, publicId: t.publicId, title: t.title, artist: t.artist,
+      album: t.album, audioUrl: t.audioUrl, duration: t.duration, coverUrl: t.coverUrl,
     }));
-    setQueue(queue, 0);
+    setQueue(q, 0);
   }
 
   const Cards = () => {
@@ -111,11 +145,10 @@ export default function PlaylistsPage() {
         </div>
       );
     }
-
     if (!playlists.length) {
       return (
-        <div className="mt-10 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-8 text-center">
-          <p className="text-white/70">No playlists yet. Create your first mix above.</p>
+        <div className="mt-10 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-8 text-center text-white/70">
+          No playlists yet. Create your first mix above.
         </div>
       );
     }
@@ -124,8 +157,8 @@ export default function PlaylistsPage() {
       <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
         {playlists.map((p) => {
           const first = p.itemIds[0] ? trackMap.get(p.itemIds[0]) : undefined;
-          const cover = first?.coverUrl || '/logo.jpeg';
-          const count = p.itemIds.length;
+          const cover = p.coverUrl || first?.coverUrl || '/logo.jpeg';
+          const count = p.itemIds.filter((id) => trackMap.has(id)).length;
 
           return (
             <motion.div
@@ -145,7 +178,6 @@ export default function PlaylistsPage() {
               </div>
 
               <div className="mt-3 flex items-center gap-3">
-                {/* Cover */}
                 <div className="relative h-16 w-16 overflow-hidden rounded-lg ring-1 ring-white/10">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={cover} alt="" className="h-full w-full object-cover" />
@@ -167,17 +199,13 @@ export default function PlaylistsPage() {
                     >
                       Play
                     </button>
-                    <Link
-                      href={`/playlists/${p.id}`}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
-                    >
+                    <Link href={`/playlists/${p.id}`} className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5">
                       Open
                     </Link>
                   </div>
                 </div>
               </div>
 
-              {/* Glow */}
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-500/0 via-transparent to-pink-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             </motion.div>
           );
@@ -190,14 +218,36 @@ export default function PlaylistsPage() {
     <section className="max-w-5xl mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Playlists</h1>
 
-      {/* Create bar */}
-      <div className="mb-6 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+      {/* Create bar with cover picker */}
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="flex-1 min-w-[240px]">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="New playlist name"
+            className="w-full rounded-md border border-transparent bg-white/[0.02] px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20"
+          />
+        </div>
+
+        {/* Hidden native input */}
         <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="New playlist name"
-          className="min-w-0 flex-1 rounded-md border border-transparent bg-white/[0.02] px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20"
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
         />
+
+        {/* Visible control + preview */}
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white hover:bg-white/10"
+          title="Choose cover"
+        >
+          <ImageIcon size={16} /> Choose cover
+        </button>
+
         <button
           onClick={create}
           disabled={!name.trim() || creating}
@@ -205,6 +255,13 @@ export default function PlaylistsPage() {
         >
           {creating ? 'Creating…' : 'Create'}
         </button>
+
+        {preview && (
+          <div className="ml-auto h-10 w-10 overflow-hidden rounded-md ring-1 ring-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={preview} alt="cover preview" className="h-full w-full object-cover" />
+          </div>
+        )}
       </div>
 
       {error && <p className="mb-3 text-red-400">{error}</p>}

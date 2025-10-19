@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
-
+import { loadStore, saveStore } from '../../playlists/_store';
 export const runtime = 'nodejs';
 
 cloudinary.config({
@@ -12,12 +12,29 @@ cloudinary.config({
 // DELETE /api/tracks/:publicId
 export async function DELETE(_req: Request, ctx: { params: Promise<{ publicId: string[] }> }) {
   try {
-    const { publicId: segments } = await ctx.params; // Next 15: await params
+    const { publicId: segments } = await ctx.params;
     const publicId = decodeURIComponent(segments.join('/'));
+
+    // 1) Delete from Cloudinary
     const resp = await cloudinary.uploader.destroy(publicId, {
       resource_type: 'video',
       invalidate: true,
     });
+
+    // 2) Cascade: remove this id from all playlists
+    try {
+      const store = await loadStore();
+      let changed = false;
+      store.playlists.forEach((p) => {
+        const before = p.itemIds.length;
+        p.itemIds = p.itemIds.filter((id) => id !== publicId);
+        if (p.itemIds.length !== before) changed = true;
+      });
+      if (changed) await saveStore(store);
+    } catch (e: any) {
+      console.error('Playlist cascade remove failed:', e?.message || e);
+    }
+
     return NextResponse.json({ ok: true, result: resp.result });
   } catch (e: any) {
     console.error('destroy error:', e?.message || e);

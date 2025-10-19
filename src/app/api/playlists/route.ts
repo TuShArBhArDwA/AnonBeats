@@ -23,11 +23,18 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { name } = await req.json();
-    if (!name || !name.trim()) return NextResponse.json({ error: 'Name required' }, { status: 400 });
-
+    const { name, coverUrl } = await req.json();
+    if (!name || !name.trim()) {
+      return NextResponse.json({ error: 'Name required' }, { status: 400 });
+    }
     const store = await loadStore();
-    const p = { id: crypto.randomUUID(), name: name.trim(), createdAt: Date.now(), itemIds: [] };
+    const p = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      createdAt: Date.now(),
+      itemIds: [],
+      coverUrl: typeof coverUrl === 'string' && coverUrl.trim() ? coverUrl.trim() : undefined,
+    };
     store.playlists = [p, ...(store.playlists || [])];
     await saveStore(store);
     return NextResponse.json(p);
