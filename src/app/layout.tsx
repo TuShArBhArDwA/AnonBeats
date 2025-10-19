@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { PlayerProvider } from '@/lib/player-context';
 import PlayerBar from '@/components/ui/PlayerBar'; 
+import SocialsBar from '@/components/SocialsBar';
 export const metadata: Metadata = {
   title: 'AnonBEATS',
   description: 'Your personal, ad-free music player',
@@ -34,17 +35,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <PlayerProvider>
           <main className="mx-auto max-w-6xl px-4 py-6 flex-1 pb-24">{children}</main>
+          <SocialsBar /> 
           <PlayerBar />
         </PlayerProvider>
-
-        <footer className="border-t border-white/10 bg-black/30 backdrop-blur-md">
-          <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-white/70 text-center">
-            Made with <span aria-hidden="true">❤️</span> by{' '}
-            <a href="https://tushar-bhardwaj.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-medium text-white hover:text-pink-400 hover:underline underline-offset-4">
-              Tushar Bhardwaj
-            </a>
-          </div>
-        </footer>
       </body>
     </html>
   );
