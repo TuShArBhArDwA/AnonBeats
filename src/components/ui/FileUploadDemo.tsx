@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { parseBlob } from 'music-metadata-browser';
 import { FileUpload } from '@/components/ui/file-upload';
+import UploadDetailsModal from '@/components/UploadDetailsModal';
 
 type UploadItem = {
   id: string;
@@ -16,122 +17,201 @@ type UploadItem = {
   artist?: string;
   album?: string;
   duration?: number;
+  coverUrl?: string;
 };
 
-const ACCEPT = /\.(mp3|wav|flac|aac|m4a|ogg)$/i;
+const AUDIO_ACCEPT = /\.(mp3|wav|flac|aac|m4a|ogg)$/i;
+
+// Embedded cover → base64 data URL (robust)
+async function extractEmbeddedCoverDataUrl(file: File): Promise<{ dataUrl: string; mime: string } | null> {
+  try {
+    const meta = await parseBlob(file);
+    const pic = meta.common.picture?.[0];
+    if (!pic?.data) return null;
+    const mime = pic.format || 'image/jpeg';
+
+    let u8: Uint8Array | null = null;
+    if (pic.data instanceof Uint8Array) u8 = pic.data;
+    else if (Array.isArray(pic.data)) u8 = new Uint8Array(pic.data);
+    else if ((pic.data as any)?.data && Array.isArray((pic.data as any).data)) u8 = new Uint8Array((pic.data as any).data);
+    else if ((pic.data as any)?.buffer instanceof ArrayBuffer) u8 = new Uint8Array((pic.data as any).buffer);
+    if (!u8) return null;
+
+    let binary = '';
+    for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i]);
+    const base64 = btoa(binary);
+    return { dataUrl: `data:${mime};base64,${base64}`, mime };
+  } catch {
+    return null;
+  }
+}
 
 export function FileUploadDemo({ onComplete }: { onComplete?: (count: number) => void }) {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [queue, setQueue] = useState<File[]>([]);
+  const [idx, setIdx] = useState(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [initialDetails, setInitialDetails] = useState<{ title: string; artist?: string; album?: string }>({ title: '' });
 
-  const handleFileUpload = async (files: File[]) => {
-    const audioFiles = files.filter((f) => f.type.startsWith('audio/') || ACCEPT.test(f.name));
+  async function startQueue(files: File[]) {
+    const audioFiles = files.filter((f) => f.type.startsWith('audio/') || AUDIO_ACCEPT.test(f.name));
     if (!audioFiles.length) return;
+    setQueue(audioFiles);
+    setIdx(0);
+    const f = audioFiles[0];
+    const def = await getDefaults(f);
+    setInitialDetails(def);
+    setModalOpen(true);
+  }
 
-    let successCount = 0;
+  async function getDefaults(file: File) {
+    let title = file.name.replace(/\.[^.]+$/, '');
+    let artist: string | undefined;
+    let album: string | undefined;
+    try {
+      const meta = await parseBlob(file);
+      title = meta.common.title || title;
+      artist = meta.common.artist || undefined;
+      album = meta.common.album || undefined;
+    } catch {}
+    return { title, artist, album };
+  }
 
-    for (const file of audioFiles) {
-      const id = crypto.randomUUID();
-      setUploads((u) => [{ id, file, progress: 0, status: 'uploading' }, ...u]);
+  async function uploadOne(file: File, details: { title: string; artist?: string; album?: string; coverFile?: File | null }) {
+    const id = crypto.randomUUID();
+    setUploads((u) => [{ id, file, progress: 0, status: 'uploading' }, ...u]);
 
-      // Default metadata from tags/filename
-      // Build defaults from tags/filename
-let title = file.name.replace(/\.[^.]+$/, '');
-let artist: string | undefined;
-let album: string | undefined;
-try {
-  const meta = await parseBlob(file);
-  title = meta.common.title || title;
-  artist = meta.common.artist || undefined;
-  album = meta.common.album || undefined;
-} catch {}
+    // 1) Sign + upload AUDIO (video endpoint)
+    const contextStr = [
+      details.title ? `title=${details.title}` : '',
+      details.artist ? `artist=${details.artist}` : '',
+      details.album ? `album=${details.album}` : '',
+    ].filter(Boolean).join('|');
 
-// Prompt for a custom title
-if (typeof window !== 'undefined') {
-  const input = window.prompt('Name for this song?', title);
-  if (input && input.trim()) title = input.trim();
+    const signAudio = await fetch('/api/cloudinary/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: contextStr, tags: 'anonbeats' }),
+    }).then((r) => r.json());
+
+    const audioForm = new FormData();
+    audioForm.append('file', file);
+    audioForm.append('api_key', signAudio.apiKey);
+    audioForm.append('timestamp', String(signAudio.timestamp));
+    audioForm.append('signature', signAudio.signature);
+    audioForm.append('folder', signAudio.folder);
+    if (signAudio.tags) audioForm.append('tags', signAudio.tags);
+    if (signAudio.context) audioForm.append('context', signAudio.context);
+
+    const audioEndpoint = `https://api.cloudinary.com/v1_1/${signAudio.cloudName}/video/upload`;
+    const audioRes = await axios.post(audioEndpoint, audioForm, {
+      onUploadProgress: (e) => {
+        const pct = Math.round((e.loaded * 100) / (e.total || file.size));
+        setUploads((u) => u.map((it) => (it.id === id ? { ...it, progress: pct } : it)));
+      },
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const up = audioRes.data as { secure_url: string; public_id: string; duration?: number };
+
+    // 2) COVER (embedded > user-chosen)
+    let coverUrl: string | undefined;
+    const embedded = await extractEmbeddedCoverDataUrl(file);
+    if (embedded || details.coverFile) {
+      const signCover = await fetch('/api/cloudinary/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folder: 'anonbeats/covers',
+          tags: 'anonbeats,cover',
+          context: `for=${up.public_id}`,
+        }),
+      }).then((r) => r.json());
+
+      const coverForm = new FormData();
+      coverForm.append('api_key', signCover.apiKey);
+      coverForm.append('timestamp', String(signCover.timestamp));
+      coverForm.append('signature', signCover.signature);
+      coverForm.append('folder', signCover.folder);
+      if (signCover.tags) coverForm.append('tags', signCover.tags);
+      if (signCover.context) coverForm.append('context', signCover.context);
+
+      if (embedded) {
+        coverForm.append('file', embedded.dataUrl);
+      } else if (details.coverFile) {
+        coverForm.append('file', details.coverFile);
+      }
+
+      const coverEndpoint = `https://api.cloudinary.com/v1_1/${signCover.cloudName}/image/upload`;
+      const coverRes = await axios.post(coverEndpoint, coverForm, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      coverUrl = coverRes.data.secure_url;
+    }
+    else {
+    coverUrl = '/logo.jpeg';
 }
 
-// Build context string (no URL encoding)
-const parts: string[] = [];
-if (title) parts.push(`title=${title}`);
-if (artist) parts.push(`artist=${artist}`);
-if (album) parts.push(`album=${album}`);
-const context = parts.join('|');
-const tags = 'anonbeats';
+    // 3) PATCH audio context to ensure final metadata is persisted
+    await fetch(`/api/tracks/${encodeURIComponent(up.public_id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: details.title, artist: details.artist, album: details.album, coverUrl }),
+    });
 
-// 1) sign EXACTLY these params
-const signRes = await fetch('/api/cloudinary/sign', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ context, tags }),
-});
-const sign = await signRes.json();
-try{
-// 2) upload using the signed values
-const form = new FormData();
-form.append('file', file);
-form.append('api_key', sign.apiKey);
-form.append('timestamp', String(sign.timestamp));
-form.append('signature', sign.signature);
-form.append('folder', sign.folder);
-if (sign.tags) form.append('tags', sign.tags);
-if (sign.context) form.append('context', sign.context);
+    // Update UI
+    setUploads((u) =>
+      u.map((it) =>
+        it.id === id
+          ? {
+              ...it,
+              status: 'done',
+              progress: 100,
+              url: up.secure_url,
+              publicId: up.public_id,
+              duration: up.duration,
+              title: details.title,
+              artist: details.artist,
+              album: details.album,
+              coverUrl,
+            }
+          : it
+      )
+    );
+  }
 
-const endpoint = `https://api.cloudinary.com/v1_1/${sign.cloudName}/video/upload`;
-const res = await axios.post(endpoint, form, {
-  onUploadProgress: (e) => {
-    const pct = Math.round((e.loaded * 100) / (e.total || file.size));
-    setUploads((u) => u.map((it) => (it.id === id ? { ...it, progress: pct } : it)));
-  },
-  headers: { 'X-Requested-With': 'XMLHttpRequest' },
-});
-
-        const up = res.data; // secure_url, public_id, duration, bytes, format
-        await fetch(`/api/tracks/${encodeURIComponent(up.public_id)}/context`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, artist, album }),
-        });
-        setUploads((u) =>
-          u.map((it) =>
-            it.id === id
-              ? {
-                  ...it,
-                  status: 'done',
-                  progress: 100,
-                  url: up.secure_url,
-                  publicId: up.public_id,
-                  duration: up.duration,
-                  title,
-                  artist,
-                  album,
-                }
-              : it
-          )
-        );
-
-        successCount++;
-      } catch (err: any) {
-        setUploads((u) =>
-          u.map((it) =>
-            it.id === id
-              ? {
-                  ...it,
-                  status: 'error',
-                  error: err?.response?.data?.error?.message || err?.message || 'Upload failed',
-                }
-              : it
-          )
-        );
-      }
+  async function onSubmitDetails(d: { title: string; artist?: string; album?: string; coverFile?: File | null }) {
+    const file = queue[idx];
+    setModalOpen(false);
+    await uploadOne(file, d);
+    const next = idx + 1;
+    if (next < queue.length) {
+      setIdx(next);
+      const def = await getDefaults(queue[next]);
+      setInitialDetails(def);
+      setModalOpen(true);
+    } else {
+      onComplete?.(queue.length);
+      setQueue([]);
+      setIdx(0);
     }
-
-    onComplete?.(successCount);
-  };
+  }
 
   return (
     <div className="w-full max-w-4xl mx-auto">
-      <FileUpload onChange={handleFileUpload} />
+      <FileUpload onChange={startQueue} />
+
+      <UploadDetailsModal
+        open={modalOpen}
+        fileName={queue[idx]?.name || ''}
+        initial={initialDetails}
+        onCancel={() => {
+          setModalOpen(false);
+          setQueue([]);
+          setIdx(0);
+        }}
+        onSubmit={onSubmitDetails}
+      />
+
       <ul className="mt-4 space-y-3">
         {uploads.map((u) => (
           <li key={u.id} className="rounded-md border border-white/10 p-3">
@@ -152,9 +232,15 @@ const res = await axios.post(endpoint, form, {
                 style={{ width: `${u.status === 'done' ? 100 : u.progress}%` }}
               />
             </div>
-            {u.status === 'done' && u.url && (
-              <div className="mt-2 text-xs text-white/70 break-all">
-                <a href={u.url} target="_blank" rel="noreferrer" className="underline">Open file</a>
+            {u.status === 'done' && (
+              <div className="mt-2 text-xs text-white/70 flex items-center gap-3">
+                {u.coverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={u.coverUrl} alt="" className="h-10 w-10 rounded object-cover" />
+                ) : (
+                  <div className="h-10 w-10 rounded bg-white/10" />
+                )}
+                <a href={u.url} target="_blank" rel="noreferrer" className="underline break-all">Open file</a>
                 {u.duration ? ` • ${Math.round(u.duration)}s` : ''}
               </div>
             )}

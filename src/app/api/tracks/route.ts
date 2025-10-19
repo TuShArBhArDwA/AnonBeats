@@ -11,76 +11,44 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
 
-function safeDecode(v?: string) {
-  if (!v) return undefined;
-  try { return decodeURIComponent(v); } catch { return v; }
-}
-
-function mapResource(r: any) {
-  const c = r.context?.custom || {};
-  const title = safeDecode(c.title) || r.public_id.split('/').pop() || 'Untitled';
-  const artist = safeDecode(c.artist) || '';
-  const album = safeDecode(c.album) || '';
-  return {
-    publicId: r.public_id,
-    title,
-    artist,
-    album,
-    audioUrl: r.secure_url,
-    duration: r.duration,
-    bytes: r.bytes,
-    format: r.format,
-    coverUrl: safeDecode(c.coverUrl),
-    createdAt: r.created_at,
-    tags: r.tags || [],
-  };
-}
+function safeDecode(v?: string) { try { return v ? decodeURIComponent(v) : undefined; } catch { return v; } }
 
 export async function GET() {
   try {
     const folder = process.env.CLOUDINARY_FOLDER || 'anonbeats/tracks';
 
-    const expressions = [
-      'resource_type:video AND tags=anonbeats',
-      `resource_type:video AND folder:${folder}`,
-      `resource_type:video AND public_id:${folder}/*`,
-    ];
+    // Use Admin API list to get fresh context immediately
+    const list = await cloudinary.api.resources({
+      type: 'upload',
+      resource_type: 'video',
+      prefix: folder,
+      context: true,
+      tags: true,
+      max_results: 200,
+    });
 
-    let resources: any[] = [];
-    for (const expr of expressions) {
-      try {
-        const result = await cloudinary.search
-          .expression(expr)
-          .with_field('context')
-          .with_field('tags')
-          .sort_by('created_at', 'desc')
-          .max_results(200)
-          .execute();
-        if (result.resources?.length) {
-          resources = result.resources;
-          break;
-        }
-      } catch (e) {
-        // keep trying fallbacks
-      }
-    }
+    const resources = (list.resources || []).sort((a: any, b: any) =>
+      a.created_at < b.created_at ? 1 : -1
+    );
 
-    // Fallback list by prefix if search returns nothing
-    if (!resources.length) {
-      try {
-        const list = await cloudinary.api.resources({
-          type: 'upload',
-          resource_type: 'video',
-          prefix: folder,
-          context: true,
-          tags: true,
-          max_results: 200,
-        });
-        resources = list.resources || [];
-      } catch {}
-    }
+    const tracks = resources.map((r: any) => {
+      const c = r.context?.custom || {};
+      return {
+        publicId: r.public_id,
+        title: safeDecode(c.title) || r.public_id.split('/').pop() || 'Untitled',
+        artist: safeDecode(c.artist) || '',
+        album: safeDecode(c.album) || '',
+        audioUrl: r.secure_url,
+        duration: r.duration,
+        bytes: r.bytes,
+        format: r.format,
+        coverUrl: safeDecode(c.coverUrl),
+        createdAt: r.created_at,
+        tags: r.tags || [],
+      };
+    });
 
-    return NextResponse.json(resources.map(mapResource));
+    return NextResponse.json(tracks);
   } catch (e: any) {
     console.error('tracks GET failed:', e?.message || e);
     return NextResponse.json({ error: 'Failed to fetch tracks' }, { status: 500 });

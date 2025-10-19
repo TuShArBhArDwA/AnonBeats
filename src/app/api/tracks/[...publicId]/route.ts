@@ -1,4 +1,3 @@
-// FILENAME: src/app/api/tracks/[...publicId]/route.ts
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 
@@ -10,9 +9,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
 
-export async function DELETE(_req: Request, { params }: { params: { publicId: string[] } }) {
+// DELETE /api/tracks/:publicId
+export async function DELETE(_req: Request, ctx: { params: Promise<{ publicId: string[] }> }) {
   try {
-    const publicId = decodeURIComponent(params.publicId.join('/'));
+    const { publicId: segments } = await ctx.params; // Next 15: await params
+    const publicId = decodeURIComponent(segments.join('/'));
     const resp = await cloudinary.uploader.destroy(publicId, {
       resource_type: 'video',
       invalidate: true,
@@ -24,19 +25,29 @@ export async function DELETE(_req: Request, { params }: { params: { publicId: st
   }
 }
 
-// PATCH /api/tracks/:publicId  body: { title?: string; artist?: string; album?: string }
-export async function PATCH(req: Request, { params }: { params: { publicId: string[] } }) {
+// PATCH /api/tracks/:publicId  body: { title?: string; artist?: string; album?: string; coverUrl?: string }
+export async function PATCH(req: Request, ctx: { params: Promise<{ publicId: string[] }> }) {
   try {
-    const { title, artist, album } = await req.json();
-    if (!title && !artist && !album) {
+    const { publicId: segments } = await ctx.params;
+    const publicId = decodeURIComponent(segments.join('/'));
+
+    const body = await req.json();
+    const title = typeof body.title === 'string' ? body.title.trim() : undefined;
+    const artist = typeof body.artist === 'string' ? body.artist.trim() : undefined;
+    const album = typeof body.album === 'string' ? body.album.trim() : undefined;
+    const coverUrl = typeof body.coverUrl === 'string' ? body.coverUrl.trim() : undefined;
+
+    if (!title && !artist && !album && !coverUrl) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-    const publicId = decodeURIComponent(params.publicId.join('/'));
 
-    const context: Record<string, string> = {};
-    if (typeof title === 'string' && title.trim()) context.title = title.trim();
-    if (typeof artist === 'string' && artist.trim()) context.artist = artist.trim();
-    if (typeof album === 'string' && album.trim()) context.album = album.trim();
+    // Build context string "key=value|key=value" for Admin API
+    const parts: string[] = [];
+    if (title) parts.push(`title=${title}`);
+    if (artist) parts.push(`artist=${artist}`);
+    if (album) parts.push(`album=${album}`);
+    if (coverUrl) parts.push(`coverUrl=${coverUrl}`);
+    const context = parts.join('|');
 
     const resp = await cloudinary.api.update(publicId, {
       resource_type: 'video',

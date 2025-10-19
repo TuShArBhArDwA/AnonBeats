@@ -7,6 +7,11 @@ import PlayerBar from '@/components/ui/PlayerBar';
 export const metadata: Metadata = {
   title: 'AnonBEATS',
   description: 'Your personal, ad-free music player',
+  icons: {
+icon: [{ url: '/logo.jpeg', type: 'image/jpeg' }],
+shortcut: ['/logo.jpeg'],
+apple: [{ url: '/logo.jpeg' }], 
+},
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

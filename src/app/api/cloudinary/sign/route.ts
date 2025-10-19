@@ -9,12 +9,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
 
+// Client sends the params to sign (folder, tags, context, public_id if needed)
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
 
   const folder = body.folder || process.env.CLOUDINARY_FOLDER || 'anonbeats/tracks';
-  const tags = typeof body.tags === 'string' ? body.tags : undefined;          // e.g., "anonbeats"
-  const context = typeof body.context === 'string' ? body.context : undefined; // e.g., "title=My Song|artist=Me"
+  const tags = typeof body.tags === 'string' ? body.tags : undefined;
+  const context = typeof body.context === 'string' ? body.context : undefined;
   const public_id = typeof body.public_id === 'string' ? body.public_id : undefined;
 
   const timestamp = Math.floor(Date.now() / 1000);
@@ -32,7 +33,6 @@ export async function POST(req: Request) {
     apiKey: process.env.CLOUDINARY_API_KEY!,
     cloudName: process.env.CLOUDINARY_CLOUD_NAME!,
     folder,
-    // echo back to reuse exactly
     tags: tags || null,
     context: context || null,
     public_id: public_id || null,
