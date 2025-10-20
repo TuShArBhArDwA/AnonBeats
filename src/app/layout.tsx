@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { PlayerProvider } from '@/lib/player-context';
 import PlayerBar from '@/components/ui/PlayerBar'; 
-import SocialsBar from '@/components/SocialsBar';
+import SocialsBarDraggable from '@/components/SocialsBarDraggable';
 export const metadata: Metadata = {
   title: 'AnonBEATS',
   description: 'Your personal, ad-free music player',
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <PlayerProvider>
           <main className="mx-auto max-w-6xl px-4 py-6 flex-1 pb-24">{children}</main>
-          <SocialsBar /> 
+          <SocialsBarDraggable />
           <PlayerBar />
         </PlayerProvider>
       </body>
