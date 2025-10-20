@@ -158,26 +158,6 @@ export default function SocialsBarDraggable() {
         </div>
         <div className="mt-1 text-center text-[10px] tracking-widest text-white/50">SOCIALS</div>
       </div>
-
-      {/* Mobile mini row (kept as you had) */}
-      <aside className="fixed bottom-24 right-3 z-50 md:hidden">
-        <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-2 py-2 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
-          {LINKS.slice(0, 4).map(({ href, label, Icon }) => (
-            <Link
-              key={label}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={label}
-              title={label}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-black/30 text-white/80
-                         transition hover:text-white hover:bg-white/15 hover:border-white/20"
-            >
-              <Icon size={16} />
-            </Link>
-          ))}
-        </div>
-      </aside>
     </>
   );
 }
