@@ -1,9 +1,12 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, Github, Linkedin, Link2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+
+// Optional: force dynamic (no SSG caching for this route)
+// export const dynamic = 'force-dynamic';
 
 export default function WelcomePage() {
   // Stop any audio as soon as we arrive
@@ -16,8 +19,15 @@ export default function WelcomePage() {
   }, []);
 
   const router = useRouter();
-  const sp = useSearchParams();
-  const cont = sp.get('continue') || '/';
+
+  // Read ?continue=... on the client (avoid useSearchParams SSR warning)
+  const [cont, setCont] = useState('/');
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      setCont(url.searchParams.get('continue') || '/');
+    }
+  }, []);
 
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
@@ -50,7 +60,7 @@ export default function WelcomePage() {
   // Clear error when typing
   useEffect(() => setErr(null), [pw]);
 
-  // Full viewport height
+  // Full viewport height (header hidden)
   const mainStyle = useMemo(() => ({ minHeight: '100dvh' }), []);
 
   async function submit() {
@@ -84,7 +94,6 @@ export default function WelcomePage() {
   // Ref for contained animation + cursor spotlight
   const cardRef = useRef<HTMLDivElement>(null);
   const [spot, setSpot] = useState({ x: 50, y: 50 });
-
   const onCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -108,7 +117,7 @@ export default function WelcomePage() {
         onMouseMove={onCardMouseMove}
         className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]"
       >
-        {/* interactive spotlight */}
+        {/* interactive spotlight (desktop) */}
         <div
           className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 md:opacity-100"
           style={{
@@ -119,13 +128,9 @@ export default function WelcomePage() {
         {/* Heading */}
         <div className="relative z-10">
           <h1 className="text-2xl sm:text-3xl font-semibold leading-tight">
-            <span className="bg-gradient-to-r from-white to-white/75 bg-clip-text text-transparent">
-              Welcome to
-            </span>
+            <span className="bg-gradient-to-r from-white to-white/75 bg-clip-text text-transparent">Welcome to</span>
             <br />
-            <span className="bg-gradient-to-r from-fuchsia-400 to-pink-500 bg-clip-text text-transparent">
-              AnonBeats
-            </span>
+            <span className="bg-gradient-to-r from-fuchsia-400 to-pink-500 bg-clip-text text-transparent">AnonBeats</span>
           </h1>
           <p className="mt-2 text-sm text-white/70">
             Your music. Zero ads. Enter the passcode to continue.
@@ -184,7 +189,6 @@ export default function WelcomePage() {
                 'Enter'
               )}
             </button>
-            
           </motion.div>
         </div>
 
@@ -244,7 +248,7 @@ function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivE
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pointer-events-none absolute inset-0">
-      {/* Expanding circle (stays within card thanks to overflow-hidden) */}
+      {/* Expanding circle */}
       <motion.div
         initial={{ scale: 0, opacity: 0.6 }}
         animate={{ scale: 1, opacity: 1 }}
