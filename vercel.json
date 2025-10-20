@@ -1,18 +1,11 @@
 {
 "version": 2,
-"buildCommand": "npm run build",
-"devCommand": "npm run dev",
-"installCommand": "npm ci",
-"regions": ["iad1"],
-
 "functions": {
-"api/**": {
-"runtime": "nodejs20.x",
+"api/**/*": {
 "memory": 1024,
 "maxDuration": 30
 }
 },
-
 "env": {
 "NEXT_TELEMETRY_DISABLED": "1"
 }
