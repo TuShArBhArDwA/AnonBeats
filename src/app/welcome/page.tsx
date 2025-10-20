@@ -3,16 +3,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, Github, Linkedin, Link2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function WelcomePage() {
-    useEffect(() => {
-  const audio = document.querySelector('audio') as HTMLAudioElement | null;
-  if (audio) {
-    audio.pause();
-    audio.currentTime = 0;
-  }
-}, []);
+  // Stop any audio as soon as we arrive
+  useEffect(() => {
+    const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  }, []);
+
   const router = useRouter();
   const sp = useSearchParams();
   const cont = sp.get('continue') || '/';
@@ -23,7 +25,7 @@ export default function WelcomePage() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
 
-  // Hide the header while on /welcome (and restore on unmount)
+  // Hide the header on welcome (restore on unmount)
   useEffect(() => {
     const header = document.querySelector('header') as HTMLElement | null;
     const prev = header?.style.display ?? '';
@@ -33,7 +35,7 @@ export default function WelcomePage() {
     };
   }, []);
 
-  // Disable page scroll while on /welcome (no micro-scroll)
+  // Disable page scroll while on welcome
   useEffect(() => {
     const prevHtml = document.documentElement.style.overflowY;
     const prevBody = document.body.style.overflowY;
@@ -48,7 +50,7 @@ export default function WelcomePage() {
   // Clear error when typing
   useEffect(() => setErr(null), [pw]);
 
-  // With header hidden, just fill viewport
+  // Full viewport height
   const mainStyle = useMemo(() => ({ minHeight: '100dvh' }), []);
 
   async function submit() {
@@ -63,7 +65,7 @@ export default function WelcomePage() {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        setErr(j?.message || 'Invalid password');
+        setErr(j?.message || 'Invalid passcode');
         setLoading(false);
         return;
       }
@@ -79,84 +81,144 @@ export default function WelcomePage() {
     }
   }
 
-  // Ref to the card for responsive, contained animation
+  // Ref for contained animation + cursor spotlight
   const cardRef = useRef<HTMLDivElement>(null);
+  const [spot, setSpot] = useState({ x: 50, y: 50 });
+
+  const onCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setSpot({ x, y });
+  };
+
+  // “Shake” when error appears
+  const shake = err
+    ? { x: [0, -10, 10, -7, 7, -4, 4, 0], transition: { duration: 0.45 } }
+    : { x: 0 };
 
   return (
-    // 2-row grid: centered card (no scroll)
-    <main className="grid grid-rows-[1fr_auto] place-items-center px-4 overflow-hidden" style={mainStyle}>
-      {/* subtle radial tint */}
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(700px_300px_at_80%_-10%,rgba(236,72,153,0.12),transparent)]" />
+    <main className="relative grid place-items-center px-4 overflow-hidden" style={mainStyle}>
+      {/* subtle background tint */}
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(900px_400px_at_80%_-10%,rgba(236,72,153,0.12),transparent)]" />
 
       {/* Center card */}
-      <div className="z-10 grid place-items-center w-full">
-        <section
-          ref={cardRef}
-          className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]"
-        >
-          <h1 className="text-2xl sm:text-3xl font-semibold">Welcome to AnonBeats</h1>
+      <section
+        ref={cardRef}
+        onMouseMove={onCardMouseMove}
+        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]"
+      >
+        {/* interactive spotlight */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 md:opacity-100"
+          style={{
+            background: `radial-gradient(180px 140px at ${spot.x}% ${spot.y}%, rgba(255,255,255,0.08), transparent 60%)`,
+          }}
+        />
+
+        {/* Heading */}
+        <div className="relative z-10">
+          <h1 className="text-2xl sm:text-3xl font-semibold leading-tight">
+            <span className="bg-gradient-to-r from-white to-white/75 bg-clip-text text-transparent">
+              Welcome to
+            </span>
+            <br />
+            <span className="bg-gradient-to-r from-fuchsia-400 to-pink-500 bg-clip-text text-transparent">
+              AnonBeats
+            </span>
+          </h1>
           <p className="mt-2 text-sm text-white/70">
             Your music. Zero ads. Enter the passcode to continue.
           </p>
 
-          {/* password */}
-          <div className="mt-5">
+          {/* Socials row */}
+          <div className="mt-4 flex items-center gap-3">
+            <Social href="https://github.com/TuShArBhArDwA" label="GitHub" Icon={Github} />
+            <Social href="https://www.linkedin.com/in/bhardwajtushar2004/" label="LinkedIn" Icon={Linkedin} />
+            <Social href="https://topmate.io/tusharbhardwaj" label="Topmate" Icon={Link2} />
+          </div>
+
+          {/* Passcode form */}
+          <motion.div className="mt-5" animate={shake}>
             <label className="block text-sm text-white/80">Passcode</label>
             <div className="mt-1 flex items-center gap-2">
-              <input
-                type={show ? 'text' : 'password'}
-                value={pw}
-                onChange={(e) => setPw(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-                placeholder="Enter passcode"
-                autoFocus
-                className="flex-1 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20"
-              />
+              <div className="relative flex-1">
+                <input
+                  type={show ? 'text' : 'password'}
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submit()}
+                  placeholder="Enter passcode"
+                  autoFocus
+                  className={`w-full rounded-md border bg-white/[0.02] px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20 ${
+                    err ? 'border-red-400/30' : 'border-white/10'
+                  }`}
+                />
+                {err && (
+                  <span className="pointer-events-none absolute -bottom-5 left-0 flex items-center gap-1 text-[11px] text-red-400">
+                    <AlertCircle size={12} /> {err}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setShow((s) => !s)}
-                className="rounded-md border border-white/10 px-3 py-2 text-xs hover:bg-white/5"
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-xs hover:bg-white/5"
               >
+                {show ? <EyeOff size={14} /> : <Eye size={14} />}
                 {show ? 'Hide' : 'Show'}
               </button>
             </div>
-            {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
 
             <button
               onClick={submit}
               disabled={!pw.trim() || loading}
-              className="mt-4 w-full rounded-md border border-white/10 bg-white text-black py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60"
+              className="mt-4 w-full rounded-md border border-white/10 bg-white py-2 text-sm font-medium text-black transition hover:opacity-90 disabled:opacity-60"
             >
-              {loading ? 'Unlocking…' : 'Enter'}
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-black/30 border-t-black" />
+                  Unlocking…
+                </span>
+              ) : (
+                'Enter'
+              )}
             </button>
-          </div>
+            
+          </motion.div>
+        </div>
 
-          {/* contained success animation */}
-          <AnimatePresence>{ok && <SuccessBurst containerRef={cardRef} />}</AnimatePresence>
-        </section>
-      </div>
-
-    
+        {/* Contained success animation */}
+        <AnimatePresence>{ok && <SuccessBurst containerRef={cardRef} />}</AnimatePresence>
+      </section>
     </main>
   );
 }
 
-function FooterLink({ href, label }: { href: string; label: string }) {
+function Social({
+  href,
+  label,
+  Icon,
+}: {
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ size?: number; className?: string }>;
+}) {
   return (
     <Link
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-white/70 hover:text-white underline underline-offset-4"
-      title={label}
       aria-label={label}
+      title={label}
+      className="group grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-black/30 text-white/80 transition hover:text-white hover:bg-white/15 hover:border-white/20"
     >
-      {label}
+      <Icon size={16} className="transition-transform group-hover:scale-110" />
     </Link>
   );
 }
 
-/* Contained success animation: computes circle to fully cover the card */
+/* Contained success animation: responsive circle + check + sparks */
 function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivElement> }) {
   const [diameter, setDiameter] = useState(0);
 
@@ -164,17 +226,16 @@ function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivE
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    // Circle big enough to cover the diagonal of the card (with a little margin)
-    const d = Math.ceil(Math.hypot(rect.width, rect.height)) * 1.1;
+    const d = Math.ceil(Math.hypot(rect.width, rect.height)) * 1.1; // covers diagonal
     setDiameter(d);
   }, [containerRef]);
 
   const particles = useMemo(() => {
     const count = 22;
-    const r = Math.max(40, diameter / 5);
+    const base = Math.max(40, diameter / 5);
     return Array.from({ length: count }, (_, i) => {
       const angle = (i / count) * Math.PI * 2;
-      const dist = r + (i % 5) * (r / 6);
+      const dist = base + (i % 5) * (base / 6);
       return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist, delay: i * 0.01 };
     });
   }, [diameter]);
@@ -183,7 +244,7 @@ function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivE
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pointer-events-none absolute inset-0">
-      {/* Expanding circle (contained by overflow-hidden on the section) */}
+      {/* Expanding circle (stays within card thanks to overflow-hidden) */}
       <motion.div
         initial={{ scale: 0, opacity: 0.6 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -197,8 +258,7 @@ function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivE
         }}
         className="absolute rounded-full bg-pink-500"
       />
-
-      {/* Check icon pop */}
+      {/* Check pop */}
       <motion.div
         initial={{ scale: 0.6, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -207,7 +267,6 @@ function SuccessBurst({ containerRef }: { containerRef: React.RefObject<HTMLDivE
       >
         <Check size={28} />
       </motion.div>
-
       {/* Sparks */}
       {particles.map((p, idx) => (
         <motion.span
