@@ -1,10 +1,8 @@
 {
 "version": 2,
 "functions": {
-"api/**/*": {
-"memory": 1024,
-"maxDuration": 30
-}
+"src/app/api//route.ts": { "maxDuration": 30, "memory": 1024 },
+"src/app/api//route.js": { "maxDuration": 30, "memory": 1024 }
 },
 "env": {
 "NEXT_TELEMETRY_DISABLED": "1"
