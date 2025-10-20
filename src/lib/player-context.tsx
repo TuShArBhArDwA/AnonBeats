@@ -1,6 +1,9 @@
 'use client';
 import React, { createContext, useContext, useMemo, useRef, useState, useEffect } from 'react';
+
 import type { Track } from '@/lib/library';
+
+type RepeatMode = 'off' | 'all' | 'one';
 
 type PlayerState = {
   queue: Track[];
@@ -8,6 +11,7 @@ type PlayerState = {
   playing: boolean;
   volume: number;
   currentTime: number;
+  repeat: RepeatMode;
   setQueue: (tracks: Track[], startIndex?: number) => void;
   play: () => void;
   pause: () => void;
@@ -15,7 +19,7 @@ type PlayerState = {
   prev: () => void;
   seek: (t: number) => void;
   setVolume: (v: number) => void;
-  // Use MutableRefObject to match useRef(...) return type
+  setRepeat: (m: RepeatMode) => void;
   audioRef: React.MutableRefObject<HTMLAudioElement | null>;
 };
 
@@ -28,6 +32,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [currentTime, setCurrentTime] = useState(0);
+  const [repeat, setRepeat] = useState<RepeatMode>('off');
 
   const current = queue[index] ?? null;
 
@@ -50,12 +55,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const next = () => {
     if (!queue.length) return;
-    setIndex((i) => Math.min(queue.length - 1, i + 1));
+  setIndex((i) => {
+    const len = queue.length;
+    if (len === 1) {
+      // restart the same track
+      const a = audioRef.current;
+      if (a) {
+        a.currentTime = 0;
+        a.play().catch(() => {});
+      }
+      return 0;
+    }
+    return (i + 1) % len;
+  });
   };
 
   const prev = () => {
     if (!queue.length) return;
-    setIndex((i) => Math.max(0, i - 1));
+    setIndex((i) => (i - 1 + queue.length) % queue.length);
   };
 
   const seek = (t: number) => {
@@ -67,12 +84,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) audioRef.current.volume = v;
   };
 
-  // Keep volume synced
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // Ensure play/pause reflects state and track changes
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
@@ -80,13 +95,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     else a.pause();
   }, [playing, current?.audioUrl]);
 
-  // Media Session (guard against missing types/constructors)
+  // Media Session metadata (optional – keep if you already had it)
   useEffect(() => {
     if (!current) return;
-    // Ensure we're in the browser and Media Session API exists
     const nav: any = typeof navigator !== 'undefined' ? (navigator as any) : null;
     const MM: any = typeof window !== 'undefined' ? (window as any).MediaMetadata : undefined;
-
     if (nav?.mediaSession && typeof MM === 'function') {
       nav.mediaSession.metadata = new MM({
         title: current.title,
@@ -99,8 +112,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       nav.mediaSession.setActionHandler?.('previoustrack', prev);
       nav.mediaSession.setActionHandler?.('nexttrack', next);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.audioUrl]);
+  }, [current?.audioUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = useMemo<PlayerState>(
     () => ({
@@ -109,6 +121,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playing,
       volume,
       currentTime,
+      repeat,
       setQueue,
       play,
       pause,
@@ -116,22 +129,49 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       prev,
       seek,
       setVolume: setVol,
+      setRepeat,
       audioRef,
     }),
-    [queue, index, playing, volume, currentTime]
+    [queue, index, playing, volume, currentTime, repeat]
   );
+
+  // Use a handler that respects repeat mode when a track ends
+  const handleEnded = () => {
+    if (!queue.length) return;
+    const len = queue.length;
+    const isLast = index >= len - 1;
+
+    if (repeat === 'one') {
+      const a = audioRef.current;
+      if (a) {
+        a.currentTime = 0;
+        a.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (!isLast) {
+      setIndex(index + 1);
+      return;
+    }
+
+    if (repeat === 'all') {
+      setIndex(0);
+    } else {
+      setPlaying(false);
+    }
+  };
 
   return (
     <PlayerContext.Provider value={value}>
       {children}
-      {/* Only set src when we have a track to avoid the empty-src warning */}
       <audio
         key={current?.publicId || 'empty'}
         ref={audioRef}
         {...(current ? { src: current.audioUrl, preload: 'metadata' } : { preload: 'none' })}
         onLoadedMetadata={() => setCurrentTime(0)}
         onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-        onEnded={next}
+        onEnded={handleEnded}
       />
     </PlayerContext.Provider>
   );
