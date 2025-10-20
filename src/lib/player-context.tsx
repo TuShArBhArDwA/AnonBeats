@@ -15,6 +15,7 @@ type PlayerState = {
   setQueue: (tracks: Track[], startIndex?: number) => void;
   play: () => void;
   pause: () => void;
+  stop: () => void;
   next: () => void;
   prev: () => void;
   seek: (t: number) => void;
@@ -35,26 +36,38 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [repeat, setRepeat] = useState<RepeatMode>('off');
 
   const current = queue[index] ?? null;
-
+  const RESTART_THRESHOLD = 3;
   const setQueue = (tracks: Track[], startIndex = 0) => {
     setQ(tracks);
     setIndex(startIndex);
     setPlaying(true);
     setCurrentTime(0);
   };
-
+  const stop = () => {
+  const a = audioRef.current;
+  if (a) {
+    a.pause();
+    a.currentTime = 0;
+  }
+  setPlaying(false);
+  setQ([]);         // clear queue so <audio> loses src on re-render
+  setIndex(0);
+  setCurrentTime(0);
+};
   const play = () => {
+    if (!current) return;
     setPlaying(true);
     audioRef.current?.play().catch(() => {});
   };
 
   const pause = () => {
+    if (!current) return;
     setPlaying(false);
     audioRef.current?.pause();
   };
 
   const next = () => {
-    if (!queue.length) return;
+    if (!current || !queue.length) return;
   setIndex((i) => {
     const len = queue.length;
     if (len === 1) {
@@ -71,11 +84,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   };
 
   const prev = () => {
-    if (!queue.length) return;
-    setIndex((i) => (i - 1 + queue.length) % queue.length);
-  };
+  const len = queue.length;
+  if (!current || !len) return;
+
+  const a = audioRef.current;
+  const t = a?.currentTime ?? 0;
+  if (t > RESTART_THRESHOLD) {
+    if (a) {
+      a.currentTime = 0;
+      if (playing) a.play().catch(() => {}); 
+    }
+    return;
+  }
+  setIndex((i) => (i - 1 + len) % len);
+};
 
   const seek = (t: number) => {
+    if (!current || !audioRef.current) return;
     if (audioRef.current) audioRef.current.currentTime = t;
   };
 
@@ -125,6 +150,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setQueue,
       play,
       pause,
+      stop,
       next,
       prev,
       seek,
