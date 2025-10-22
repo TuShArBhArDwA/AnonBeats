@@ -2,13 +2,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Play, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Play, Trash2, Image as ImageIcon, ListMusic } from 'lucide-react';
 import { usePlayer } from '@/lib/player-context';
 
 type Playlist = { id: string; name: string; createdAt: number; itemIds: string[]; coverUrl?: string };
 type Track = {
   publicId: string; title: string; artist?: string; album?: string;
   audioUrl: string; duration?: number; coverUrl?: string;
+};
+
+const btn = {
+  base: 'inline-flex items-center gap-2 rounded-md transition focus:outline-none focus:ring-2 focus:ring-white/10 active:translate-y-[0.5px]',
+  primary: 'bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white shadow-[0_8px_24px_-6px_rgba(236,72,153,0.5)] hover:shadow-[0_10px_28px_-6px_rgba(236,72,153,0.65)]',
+  glass: 'border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-white',
+  tiny: 'px-2.5 py-1.5 text-[11px]',
+  md: 'px-3 py-2 text-sm',
+  icon: 'p-1.5',
+  danger: 'border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/15 text-rose-200'
 };
 
 export default function PlaylistsPage() {
@@ -54,7 +64,6 @@ export default function PlaylistsPage() {
 
   async function uploadCoverIfAny(): Promise<string | undefined> {
     if (!coverFile) return undefined;
-    // Sign image upload
     const sign = await fetch('/api/cloudinary/sign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -81,11 +90,7 @@ export default function PlaylistsPage() {
     try {
       if (!name.trim()) return;
       setCreating(true);
-
-      // 1) upload cover if present
       const coverUrl = await uploadCoverIfAny();
-
-      // 2) create playlist with coverUrl
       const res = await fetch('/api/playlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,8 +98,6 @@ export default function PlaylistsPage() {
       });
       if (!res.ok) throw new Error(`Create failed: HTTP ${res.status}`);
       const p = await res.json();
-
-      // optimistic + refresh after a tick for Cloudinary raw JSON indexing
       setPlaylists((prev) => [p, ...prev]);
       setName('');
       setCoverFile(null);
@@ -138,9 +141,12 @@ export default function PlaylistsPage() {
   const Cards = () => {
     if (loading) {
       return (
-        <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-40 rounded-xl border border-white/10 bg-white/[0.03] animate-pulse" />
+        <div className="grid gap-4 grid-cols-2 md:gap-5 md:grid-cols-3 lg:grid-cols-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div className="aspect-[4/3] md:aspect-square rounded-lg bg-white/[0.06] animate-pulse" />
+              <div className="mt-2 h-4 w-1/2 rounded bg-white/[0.06] animate-pulse" />
+            </div>
           ))}
         </div>
       );
@@ -154,7 +160,7 @@ export default function PlaylistsPage() {
     }
 
     return (
-      <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-2 md:gap-5 md:grid-cols-3 lg:grid-cols-4">
         {playlists.map((p) => {
           const first = p.itemIds[0] ? trackMap.get(p.itemIds[0]) : undefined;
           const cover = p.coverUrl || first?.coverUrl || '/logo.jpeg';
@@ -164,49 +170,65 @@ export default function PlaylistsPage() {
             <motion.div
               key={p.id}
               whileHover={{ y: -2, scale: 1.01 }}
-              className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-4"
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 hover:border-white/20"
             >
-              <div className="flex items-start justify-between">
-                <h3 className="font-semibold truncate">{p.name}</h3>
+              {/* Delete */}
+              <button
+                onClick={() => remove(p.id)}
+                className={`${btn.base} ${btn.icon} ${btn.danger} absolute right-2 top-2 z-10 rounded-md`}
+                title="Delete playlist"
+              >
+                <Trash2 size={14} />
+              </button>
+
+              {/* Cover */}
+              <div className="relative aspect-[4/3] md:aspect-square w-full overflow-hidden rounded-lg ring-1 ring-inset ring-white/10">
+                {/* Track count pill */}
+                <div className="absolute left-2 top-2 z-10">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/45 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur-md">
+                    <ListMusic size={12} />
+                    {count} {count === 1 ? 'track' : 'tracks'}
+                  </span>
+                </div>
+
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover} alt="" className="h-full w-full object-cover" />
+
+                {/* Play overlay */}
                 <button
-                  onClick={() => remove(p.id)}
-                  className="rounded-md border border-white/10 px-2 py-1 text-xs hover:bg-white/5"
-                  title="Delete playlist"
+                  onClick={() => playAll(p)}
+                  className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100 focus-visible:bg-black/30 focus-visible:opacity-100 outline-none"
+                  title="Play"
                 >
-                  <Trash2 size={14} />
+                  <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white shadow ring-1 ring-black/10 md:h-12 md:w-12">
+                    <Play size={18} />
+                  </span>
                 </button>
+
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/0 via-transparent to-pink-500/12 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               </div>
 
-              <div className="mt-3 flex items-center gap-3">
-                <div className="relative h-16 w-16 overflow-hidden rounded-lg ring-1 ring-white/10">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={cover} alt="" className="h-full w-full object-cover" />
+              {/* Meta + actions */}
+              <div className="mt-2">
+                <h3 className="truncate text-sm font-semibold" title={p.name}>{p.name}</h3>
+                <div className="mt-1 flex items-center gap-2">
                   <button
                     onClick={() => playAll(p)}
-                    className="absolute inset-0 hidden place-items-center rounded-lg bg-black/40 text-white opacity-0 transition group-hover:grid group-hover:opacity-100"
-                    title="Play"
+                    className={`${btn.base} ${btn.tiny} ${btn.primary}`}
                   >
-                    <Play size={16} />
+                    Play
                   </button>
-                </div>
-
-                <div className="min-w-0">
-                  <div className="text-sm text-white/70">{count} track{count !== 1 ? 's' : ''}</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <button
-                      onClick={() => playAll(p)}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
-                    >
-                      Play
-                    </button>
-                    <Link href={`/playlists/${p.id}`} className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5">
-                      Open
-                    </Link>
-                  </div>
+                  <Link
+                    href={`/playlists/${p.id}`}
+                    className={`${btn.base} ${btn.tiny} ${btn.glass}`}
+                  >
+                    Open
+                  </Link>
                 </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-500/0 via-transparent to-pink-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/10" />
             </motion.div>
           );
         })}
@@ -218,9 +240,9 @@ export default function PlaylistsPage() {
     <section className="max-w-5xl mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Playlists</h1>
 
-      {/* Create bar with cover picker */}
+      {/* Create bar */}
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex-1 min-w-[240px]">
+        <div className="flex-1 min-w-[220px]">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -229,7 +251,6 @@ export default function PlaylistsPage() {
           />
         </div>
 
-        {/* Hidden native input */}
         <input
           ref={inputRef}
           type="file"
@@ -238,11 +259,10 @@ export default function PlaylistsPage() {
           onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
         />
 
-        {/* Visible control + preview */}
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white hover:bg-white/10"
+          className={`${btn.base} ${btn.md} ${btn.glass}`}
           title="Choose cover"
         >
           <ImageIcon size={16} /> Choose cover
@@ -251,7 +271,7 @@ export default function PlaylistsPage() {
         <button
           onClick={create}
           disabled={!name.trim() || creating}
-          className="rounded-md border border-white/10 bg-white/10 px-4 py-2 text-sm hover:bg-white/15 disabled:opacity-60"
+          className={`${btn.base} ${btn.md} ${btn.primary} disabled:opacity-60`}
         >
           {creating ? 'Creating…' : 'Create'}
         </button>
