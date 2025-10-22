@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Play, Trash2, ListPlus, Shuffle, Search } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Play, Trash2, ListPlus, Shuffle, Search, X } from 'lucide-react';
 import { usePlayer } from '@/lib/player-context';
 import Link from 'next/link';
 
@@ -24,11 +24,9 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [pickerFor, setPickerFor] = useState<string | null>(null); // publicId whose picker is open
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [newPlName, setNewPlName] = useState('');
-
-  // Measured durations map for any track missing duration
   const [durations, setDurations] = useState<Record<string, number>>({});
 
   const currentId = queue[index]?.publicId;
@@ -56,11 +54,18 @@ export default function LibraryPage() {
     } catch {}
   }
 
-  useEffect(() => {
-    fetchTracks();
-  }, [fetchTracks]);
+  useEffect(() => { fetchTracks(); }, [fetchTracks]);
 
-  // Client-side duration measurement for missing durations
+  // Close picker on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setPickerFor(null); }
+    if (pickerFor) {
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }
+  }, [pickerFor]);
+
+  // Measure duration if missing
   useEffect(() => {
     const missing = tracks.filter((t) => !(t.duration && t.duration > 0) && !durations[t.publicId]);
     if (!missing.length) return;
@@ -74,9 +79,7 @@ export default function LibraryPage() {
       audio.onloadedmetadata = () => {
         if (unmounted) return;
         const d = Math.round(audio.duration || 0);
-        if (d > 0) {
-          setDurations((prev) => ({ ...prev, [t.publicId]: d }));
-        }
+        if (d > 0) setDurations((prev) => ({ ...prev, [t.publicId]: d }));
       };
       try { audio.load(); } catch {}
     });
@@ -142,7 +145,8 @@ export default function LibraryPage() {
 
   async function addToPlaylist(playlistId: string, publicId: string) {
     await fetch(`/api/playlists/${playlistId}/tracks`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ publicId }),
     });
     setPickerFor(null);
@@ -151,7 +155,8 @@ export default function LibraryPage() {
   async function createAndAdd(publicId: string) {
     if (!newPlName.trim()) return;
     const res = await fetch('/api/playlists', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newPlName.trim() }),
     });
     const p = await res.json();
@@ -169,11 +174,11 @@ export default function LibraryPage() {
           <div className="h-9 w-24 rounded-md border border-white/10 bg-white/[0.03] animate-pulse" />
           <div className="h-9 w-24 rounded-md border border-white/10 bg-white/[0.03] animate-pulse" />
         </div>
-        <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
+        <div className="grid gap-4 grid-cols-2 md:gap-5 md:grid-cols-3 lg:grid-cols-4">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <div className="aspect-square rounded-lg bg-white/[0.06] animate-pulse" />
-              <div className="mt-3 h-4 w-1/2 rounded bg-white/[0.06] animate-pulse" />
+            <div key={i} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div className="aspect-[4/3] md:aspect-square rounded-lg bg-white/[0.06] animate-pulse" />
+              <div className="mt-2 h-4 w-1/2 rounded bg-white/[0.06] animate-pulse" />
             </div>
           ))}
         </div>
@@ -214,26 +219,27 @@ export default function LibraryPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search songs…"
-              className="peer w-64 rounded-md border border-white/10 bg-white/[0.02] px-8 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20"
+              className="peer w-64 rounded-md border border-white/10 bg-white/[0.02] px-8 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20 focus:ring-2 focus:ring-white/10"
             />
             <Search size={16} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-white/50 peer-focus:text-white/70" />
           </div>
           <button
             onClick={() => playAll(filtered)}
-            className="rounded-md border border-white/10 bg-white text-black px-3 py-2 text-sm hover:opacity-90"
+            className="rounded-md border border-white/10 bg-white text-black px-3 py-2 text-sm hover:opacity-90 active:opacity-80"
           >
             Play all
           </button>
           <button
             onClick={() => shuffleAll(filtered)}
-            className="inline-flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+            className="inline-flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/10"
           >
             <Shuffle size={16} /> Shuffle
           </button>
         </div>
       </div>
 
-      <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
+      {/* Shorter cards: 2 cols on mobile, shorter cover on small screens */}
+      <div className="grid gap-4 grid-cols-2 md:gap-5 md:grid-cols-3 lg:grid-cols-4">
         {filtered.map((t, i) => {
           const isCurrent = currentId === t.publicId;
           const d = durations[t.publicId] ?? t.duration;
@@ -243,104 +249,138 @@ export default function LibraryPage() {
             <motion.div
               key={t.publicId}
               whileHover={{ y: -2, scale: 1.01 }}
-              className={`group relative overflow-hidden rounded-2xl border p-3 transition ${
-                isCurrent ? 'border-pink-500/60 bg-pink-500/[0.07]' : 'border-white/10 bg-white/[0.03]'
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className={`group relative flex flex-col overflow-hidden rounded-xl border p-3 transition-colors ${
+                isCurrent
+                  ? 'border-pink-500/60 bg-pink-500/[0.07]'
+                  : 'border-white/10 bg-white/[0.03] hover:border-white/20'
               }`}
             >
-              {/* Cover */}
-              <div className="relative aspect-square w-full overflow-hidden rounded-lg ring-1 ring-white/10">
+              {/* Cover: shorter on small screens, square from md up */}
+              <div className="relative aspect-[4/3] md:aspect-square w-full overflow-hidden rounded-lg ring-1 ring-inset ring-white/10">
+                {isCurrent && (
+                  <div className="absolute left-2 top-2 z-10">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-pink-500/90 px-2 py-0.5 text-[10px] font-medium text-white shadow ring-1 ring-white/20">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/80 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                      </span>
+                      Now playing
+                    </span>
+                  </div>
+                )}
+
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={cover} alt="" className="h-full w-full object-cover" />
-                {/* Overlay Play */}
+
                 <button
                   onClick={() => setQueue(toPlayerQueue(filtered), i)}
-                  className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100"
+                  className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100 focus-visible:bg-black/30 focus-visible:opacity-100 outline-none"
                   title="Play"
                 >
-                  <span className="grid h-12 w-12 place-items-center rounded-full bg-white text-black shadow">
+                  <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-black shadow-sm ring-1 ring-black/10 md:h-12 md:w-12">
                     <Play size={18} />
                   </span>
                 </button>
-                {/* Subtle gradient glow */}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-500/0 via-transparent to-pink-500/15 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               </div>
 
-              {/* Meta */}
-              <div className="mt-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">
-                    {t.title}{' '}
-                    {isCurrent && <span className="ml-2 text-xs text-pink-400">Now playing</span>}
-                  </div>
-                  <div className="truncate text-xs text-white/60">
-                    {t.artist || ''} {d ? `• ${fmt(d)}` : ''}
-                  </div>
+              {/* Meta (compact) */}
+              <div className="mt-2">
+                <div className="min-w-0 truncate text-sm font-medium" title={t.title}>
+                  {t.title}
+                </div>
+                <div className="truncate text-[11px] text-white/60">
+                  {t.artist || ''} {d ? `• ${fmt(d)}` : ''}
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="mt-3 flex items-center justify-between">
+              {/* Actions (compact) */}
+              <div className="mt-2 flex items-center justify-between">
                 <button
-                  onClick={() => {
-                    setPickerFor(t.publicId);
-                    fetchPlaylists();
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
+                  onClick={() => openPicker(t.publicId)}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/10"
                   title="Add to playlist"
                 >
-                  <ListPlus size={14} /> Add to playlist
+                  <ListPlus size={13} /> Add to playlist
                 </button>
                 <button
                   onClick={() => remove(t.publicId)}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/10"
                   title="Remove from library"
                 >
-                  <Trash2 size={14} /> Remove
+                  <Trash2 size={13} /> Remove
                 </button>
               </div>
 
-              {/* Add to playlist popover */}
-              {pickerFor === t.publicId && (
-                <div className="mt-2 rounded-xl border border-white/10 bg-[#0b0b12]/95 p-3 shadow-xl">
-                  <div className="mb-2 text-xs text-white/60">Add “{t.title}” to…</div>
-                  {playlists.length ? (
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      {playlists.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => addToPlaylist(p.id, t.publicId)}
-                          className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
-                        >
-                          + {p.name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-xs text-white/60">No playlists yet</div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={newPlName}
-                      onChange={(e) => setNewPlName(e.target.value)}
-                      placeholder="New playlist name"
-                      className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs outline-none placeholder:text-white/40 focus:border-white/20"
-                    />
-                    <button
-                      onClick={() => createAndAdd(t.publicId)}
-                      disabled={!newPlName.trim()}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5 disabled:opacity-50"
-                    >
-                      Create & add
-                    </button>
-                    <button
+              {/* Playlist picker as overlay */}
+              <AnimatePresence>
+                {pickerFor === t.publicId && (
+                  <motion.div
+                    key="picker"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-20 flex items-end"
+                    aria-modal="true"
+                    role="dialog"
+                  >
+                    <div
+                      className="absolute inset-0 bg-black/60 backdrop-blur-sm"
                       onClick={() => setPickerFor(null)}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
+                    />
+                    <motion.div
+                      initial={{ y: 12, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: 12, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                      className="relative z-10 m-3 w-full rounded-xl border border-white/10 bg-[#0b0b12]/95 p-3 shadow-xl"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-xs text-white/70">Add “{t.title}” to…</div>
+                        <button
+                          onClick={() => setPickerFor(null)}
+                          className="rounded-md p-1 text-white/60 hover:bg-white/5 hover:text-white/80"
+                          aria-label="Close"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      {playlists.length ? (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {playlists.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => addToPlaylist(p.id, t.publicId)}
+                              className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
+                            >
+                              + {p.name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mb-2 text-xs text-white/60">No playlists yet</div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={newPlName}
+                          onChange={(e) => setNewPlName(e.target.value)}
+                          placeholder="New playlist name"
+                          className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs outline-none placeholder:text-white/40 focus:border-white/20"
+                        />
+                        <button
+                          onClick={() => createAndAdd(t.publicId)}
+                          disabled={!newPlName.trim()}
+                          className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5 disabled:opacity-50"
+                        >
+                          Create & add
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           );
         })}
