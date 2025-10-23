@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePlayer } from '@/lib/player-context';
-import { Pause, Play, SkipBack, SkipForward, Volume2, Repeat, Repeat1 } from 'lucide-react';
+import { Pause, Play, SkipBack, SkipForward, Volume2, Repeat, Repeat1, Heart } from 'lucide-react';
 
 function fmt(sec: number) {
   if (!isFinite(sec) || sec < 0) return '0:00';
@@ -10,6 +10,8 @@ function fmt(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+type LikedPlaylist = { id: string; name: string; itemIds: string[] };
+
 export default function PlayerBar() {
   const { queue, index, playing, audioRef, next, prev, play, pause, setVolume, repeat, setRepeat } = usePlayer();
   const track = queue[index];
@@ -17,6 +19,120 @@ export default function PlayerBar() {
 
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+
+  // Liked songs state
+  const [likedPlaylistId, setLikedPlaylistId] = useState<string | null>(null);
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const [likeBusy, setLikeBusy] = useState(false);
+
+  // Load liked playlist once
+  useEffect(() => {
+    let cancelled = false;
+    async function ensureAndLoadLiked() {
+      try {
+        let pid: string | null = null;
+        let items: string[] = [];
+        let res = await fetch('/api/playlists/liked', { cache: 'no-store' });
+
+        if (res.ok) {
+          const p = (await res.json()) as LikedPlaylist;
+          pid = p.id; items = Array.isArray(p.itemIds) ? p.itemIds : [];
+        } else {
+          const listRes = await fetch('/api/playlists', { cache: 'no-store' });
+          const lists = listRes.ok ? ((await listRes.json()) as LikedPlaylist[]) : [];
+          const found = lists.find((x) => x.id === 'liked') || lists.find((x) => x.name?.toLowerCase() === 'liked songs');
+          if (found) {
+            pid = found.id;
+            const pr = await fetch(`/api/playlists/${found.id}`, { cache: 'no-store' });
+            if (pr.ok) {
+              const p = (await pr.json()) as LikedPlaylist;
+              items = Array.isArray(p.itemIds) ? p.itemIds : [];
+            }
+          } else {
+            const cr = await fetch('/api/playlists', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: 'liked', name: 'Liked songs' }),
+            });
+            if (cr.ok) {
+              const p = (await cr.json()) as LikedPlaylist;
+              pid = p.id; items = [];
+            }
+          }
+        }
+        if (!cancelled) {
+          if (pid) setLikedPlaylistId(pid);
+          setLikedIds(new Set(items));
+        }
+      } catch {}
+    }
+    ensureAndLoadLiked();
+    return () => { cancelled = true; };
+  }, []);
+
+  const isLiked = useMemo(() => (track ? likedIds.has(track.publicId) : false), [track, likedIds]);
+
+  async function toggleLike() {
+    if (!track || likeBusy) return;
+    if (!likedPlaylistId) {
+      try {
+        const cr = await fetch('/api/playlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: 'liked', name: 'Liked songs' }),
+        });
+        if (cr.ok) {
+          const p = (await cr.json()) as LikedPlaylist;
+          setLikedPlaylistId(p.id);
+        }
+      } catch {}
+    }
+
+    const pid = likedPlaylistId || 'liked';
+    const tId = track.publicId;
+    setLikeBusy(true);
+
+    // optimistic
+    setLikedIds((prev) => {
+      const copy = new Set(prev);
+      if (copy.has(tId)) copy.delete(tId); else copy.add(tId);
+      return copy;
+    });
+
+    try {
+      if (!isLiked) {
+        const r = await fetch(`/api/playlists/${encodeURIComponent(pid)}/tracks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicId: tId }),
+        });
+        if (!r.ok) throw new Error('Failed to like');
+      } else {
+        const r = await fetch(`/api/playlists/${encodeURIComponent(pid)}/tracks?publicId=${encodeURIComponent(tId)}`, {
+          method: 'DELETE',
+        });
+        if (!r.ok) throw new Error('Failed to unlike');
+      }
+    } catch {
+      // revert
+      setLikedIds((prev) => {
+        const copy = new Set(prev);
+        if (!isLiked) copy.delete(tId); else copy.add(tId);
+        return copy;
+      });
+    } finally {
+      setLikeBusy(false);
+    }
+  }
+
+  // Keyboard shortcut: L
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key.toLowerCase() === 'l') { e.preventDefault(); toggleLike(); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isLiked, likedPlaylistId, track]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -33,8 +149,7 @@ export default function PlayerBar() {
 
   useEffect(() => {
     if (!audioRef.current) return;
-    if (playing) audioRef.current.play().catch(() => {});
-    else audioRef.current.pause();
+    if (playing) audioRef.current.play().catch(() => {}); else audioRef.current.pause();
   }, [playing, track?.audioUrl, audioRef]);
 
   const cycleRepeat = () => setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off');
@@ -46,22 +161,16 @@ export default function PlayerBar() {
   const Desktop = (
     <div className="hidden md:block">
       <div className="mx-auto max-w-6xl px-4 py-3 grid grid-cols-3 gap-4 items-center">
-        {/* Left */}
+        {/* Left: meta only */}
         <div className="min-w-0">
           <div className="truncate font-medium">{track?.title || 'AnonBEATS'}</div>
           <div className="truncate text-xs text-white/60">{track?.artist || ''}</div>
         </div>
 
-        {/* Middle */}
+        {/* Middle: transport + seek */}
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-3">
-            <button
-              onClick={prev}
-              disabled={disabled}
-              className={`p-2 rounded-md hover:bg-white/5 ${disabled ? disabledBtn : ''}`}
-              aria-disabled={disabled}
-              title={disabled ? 'No track' : 'Previous'}
-            >
+            <button onClick={prev} disabled={disabled} className={`p-2 rounded-md hover:bg-white/5 ${disabled ? disabledBtn : ''}`} title={disabled ? 'No track' : 'Previous'}>
               <SkipBack size={18} />
             </button>
 
@@ -69,19 +178,12 @@ export default function PlayerBar() {
               onClick={playing ? pause : play}
               disabled={disabled}
               className={`p-3 rounded-full ${disabled ? 'bg-white/30 text-black/60 ' + disabledBtn : 'bg-white text-black hover:opacity-90 transition'}`}
-              aria-disabled={disabled}
               title={disabled ? 'No track' : (playing ? 'Pause' : 'Play')}
             >
               {playing ? <Pause size={18} /> : <Play size={18} />}
             </button>
 
-            <button
-              onClick={next}
-              disabled={disabled}
-              className={`p-2 rounded-md hover:bg-white/5 ${disabled ? disabledBtn : ''}`}
-              aria-disabled={disabled}
-              title={disabled ? 'No track' : 'Next'}
-            >
+            <button onClick={next} disabled={disabled} className={`p-2 rounded-md hover:bg-white/5 ${disabled ? disabledBtn : ''}`} title={disabled ? 'No track' : 'Next'}>
               <SkipForward size={18} />
             </button>
           </div>
@@ -101,13 +203,12 @@ export default function PlayerBar() {
               }}
               disabled={disabled}
               className={`w-full accent-pink-500 ${disabled ? disabledRange : ''}`}
-              aria-disabled={disabled}
             />
             <span className="tabular-nums">{fmt(duration)}</span>
           </div>
         </div>
 
-        {/* Right: volume + repeat */}
+        {/* Right: volume + like + repeat */}
         <div className="flex items-center gap-2 justify-end">
           <Volume2 size={18} className={`text-white/70 ${disabled ? 'opacity-40' : ''}`} />
           <input
@@ -118,13 +219,20 @@ export default function PlayerBar() {
             onChange={(e) => setVolume(Number(e.target.value))}
             disabled={disabled}
             className={`w-28 accent-pink-500 ${disabled ? disabledRange : ''}`}
-            aria-disabled={disabled}
           />
+          {/* Heart moved here */}
+          <button
+            onClick={toggleLike}
+            disabled={disabled || likeBusy}
+            className={`p-2 rounded-md hover:bg-white/5 transition ${disabled ? disabledBtn : ''} ${isLiked ? 'text-pink-400' : 'text-white/70'}`}
+            title={disabled ? 'No track' : isLiked ? 'Unlike (L)' : 'Like (L)'}
+          >
+            <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} className="transition" />
+          </button>
           <button
             onClick={cycleRepeat}
             disabled={disabled}
             className={`p-2 rounded-md hover:bg-white/5 transition ${disabled ? disabledBtn : (repeat !== 'off' ? 'text-pink-400' : 'text-white/70')}`}
-            aria-disabled={disabled}
             title={disabled ? 'No track' : repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
           >
             {repeat === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
@@ -137,13 +245,11 @@ export default function PlayerBar() {
   // Mobile
   const Mobile = (
     <div className="md:hidden px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
-      <div className="flex items-center justify-center gap-3">
-        <button
-          onClick={prev}
-          disabled={disabled}
-          className={`p-2 rounded-md text-white/80 hover:bg-white/5 ${disabled ? disabledBtn : ''}`}
-          aria-disabled={disabled}
-        >
+      {/* Title only */}
+      <div className="text-xs text-white/70 truncate">{track?.title || 'AnonBEATS'}</div>
+
+      <div className="mt-2 flex items-center justify-center gap-3">
+        <button onClick={prev} disabled={disabled} className={`p-2 rounded-md text-white/80 hover:bg-white/5 ${disabled ? disabledBtn : ''}`}>
           <SkipBack size={18} />
         </button>
 
@@ -151,26 +257,28 @@ export default function PlayerBar() {
           onClick={playing ? pause : play}
           disabled={disabled}
           className={`grid h-10 w-10 place-items-center rounded-full ${disabled ? 'bg-white/30 text-black/60 ' + disabledBtn : 'bg-white text-black hover:opacity-90 transition'}`}
-          aria-disabled={disabled}
         >
           {playing ? <Pause size={18} /> : <Play size={18} />}
         </button>
 
-        <button
-          onClick={next}
-          disabled={disabled}
-          className={`p-2 rounded-md text-white/80 hover:bg-white/5 ${disabled ? disabledBtn : ''}`}
-          aria-disabled={disabled}
-        >
+        <button onClick={next} disabled={disabled} className={`p-2 rounded-md text-white/80 hover:bg-white/5 ${disabled ? disabledBtn : ''}`}>
           <SkipForward size={18} />
         </button>
 
-        {/* Repeat on right */}
+        {/* Heart moved into control row here */}
+        <button
+          onClick={toggleLike}
+          disabled={disabled || likeBusy}
+          className={`p-2 rounded-md hover:bg-white/5 transition ${disabled ? disabledBtn : ''} ${isLiked ? 'text-pink-400' : 'text-white/70'}`}
+          title={disabled ? 'No track' : isLiked ? 'Unlike (L)' : 'Like (L)'}
+        >
+          <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} className="transition" />
+        </button>
+
         <button
           onClick={cycleRepeat}
           disabled={disabled}
           className={`p-2 rounded-md hover:bg-white/5 ${disabled ? disabledBtn : (repeat !== 'off' ? 'text-pink-400' : 'text-white/70')}`}
-          aria-disabled={disabled}
           title={disabled ? 'No track' : repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
         >
           {repeat === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
@@ -192,7 +300,6 @@ export default function PlayerBar() {
           }}
           disabled={disabled}
           className={`w-full accent-pink-500 h-1 ${disabled ? disabledRange : ''}`}
-          aria-disabled={disabled}
         />
         <span className="tabular-nums">{fmt(duration)}</span>
       </div>
@@ -201,10 +308,6 @@ export default function PlayerBar() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-black/70 backdrop-blur-xl">
-      {/* Title line (optional) */}
-      <div className="px-4 py-1 text-xs text-white/70 truncate md:hidden">
-        {track?.title || 'AnonBEATS'}
-      </div>
       {Desktop}
       {Mobile}
     </div>
