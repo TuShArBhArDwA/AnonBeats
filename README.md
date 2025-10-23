@@ -16,6 +16,7 @@ Personal, ad‑free music player — upload your songs, build playlists, and str
 ## Table of Contents
 
 - [Demo](#demo)
+- [Access](#access-note)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [How it works](#how-it-works)
@@ -36,20 +37,39 @@ Personal, ad‑free music player — upload your songs, build playlists, and str
 
 ## Demo
 
-<img width="1918" height="967" alt="image" src="https://github.com/user-attachments/assets/f4144ab9-0b57-4493-a492-b701785d0934" />
+<img width="1919" height="969" alt="image" src="https://github.com/user-attachments/assets/740affaf-945e-4a5e-b35b-92740d3b5d2f" />
+
 
 > Homepage hero with spotlight, socials bar, and sticky player
 
-<img width="1919" height="969" alt="image" src="https://github.com/user-attachments/assets/90e43453-e667-4596-a221-1482746b5e05" />
+<img width="1918" height="968" alt="image" src="https://github.com/user-attachments/assets/8757956e-d43f-46a3-adfc-2243cd0517e5" />
+
 
 > Library grid with covers, hover play, search, add-to-playlist
 
-<img width="1918" height="968" alt="image" src="https://github.com/user-attachments/assets/f4237472-2f18-4bc6-a47c-a8c1989335c6" />
+<img width="1918" height="967" alt="image" src="https://github.com/user-attachments/assets/cbedbbf5-d38d-4a48-8623-a74a3a7987ec" />
+
 
 
 > Playlists with hero cover, add/search tracks, play all, remove
 
 ---
+
+### Access Note
+
+This project includes a **passcode-protected entry** for demo access.  
+If you'd like to explore **AnonBeats** live, please **DM me for the passcode** via:  
+- 💬 [LinkedIn](https://www.linkedin.com/in/bhardwajtushar2004/)  
+- 📧 [Email](mailto:tusharbhardwaj2617@example.com)
+- 💻 [Topmate](https://topmate.io/tusharbhardwaj)
+  
+*(Access is restricted to maintain privacy and server limits.)*
+
+
+---
+
+
+
 
 ## Features
 
