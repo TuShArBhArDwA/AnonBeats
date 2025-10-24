@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Plus, X, Trash2, Clock, ListMusic, ArrowLeft } from 'lucide-react';
 import { usePlayer } from '@/lib/player-context';
+import { useLikes } from '@/lib/likes-context';
 
 type ApiTrack = {
   publicId: string;
@@ -30,6 +31,7 @@ const btn = {
 export default function PlaylistDetail() {
   const params = useParams<{ id: string }>();
   const { setQueue } = usePlayer();
+  const { like, unlike, isLiked: isLikedTrack } = useLikes();
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [allTracks, setAllTracks] = useState<ApiTrack[]>([]);
@@ -93,10 +95,15 @@ export default function PlaylistDetail() {
     return playlistTracks.reduce((acc, t) => acc + (durations[t.publicId] ?? t.duration ?? 0), 0);
   }, [playlistTracks, durations]);
 
+  const isLikedPlaylist = useMemo(
+    () => playlist?.id === 'liked' || playlist?.name?.toLowerCase() === 'liked songs',
+    [playlist]
+  );
+
   const coverHero = useMemo(() => {
-    if (playlist?.coverUrl) return playlist.coverUrl;
-    return playlistTracks[0]?.coverUrl || '/logo.jpeg';
-  }, [playlist, playlistTracks]);
+    if (isLikedPlaylist) return playlist?.coverUrl || '/liked.png';
+    return playlist?.coverUrl || playlistTracks[0]?.coverUrl || '/logo.jpeg';
+  }, [isLikedPlaylist, playlist, playlistTracks]);
 
   const candidates = useMemo(() => {
     const missing = allTracks.filter((t) => !playlist?.itemIds.includes(t.publicId));
@@ -111,12 +118,24 @@ export default function PlaylistDetail() {
 
   async function removeFromPlaylist(publicId: string) {
     if (!playlist) return;
+    if (isLikedPlaylist) {
+      // Use LikesContext to unlike (updates global heart immediately)
+      await unlike(publicId);
+      await refresh();
+      return;
+    }
     await fetch(`/api/playlists/${playlist.id}/tracks?publicId=${encodeURIComponent(publicId)}`, { method: 'DELETE' });
     refresh();
   }
 
   async function addToPlaylist(publicId: string) {
     if (!playlist) return;
+    if (isLikedPlaylist) {
+      // Use LikesContext to like (updates global heart immediately)
+      await like(publicId);
+      await refresh();
+      return;
+    }
     await fetch(`/api/playlists/${playlist.id}/tracks`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ publicId }),
@@ -225,12 +244,15 @@ export default function PlaylistDetail() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button onClick={playAll} className={`${btn.base} ${btn.md} ${btn.primary}`}>Play all</button>
             <button onClick={() => setAdding(true)} className={`${btn.base} ${btn.md} ${btn.glass}`}>Add tracks</button>
-            <button onClick={deletePlaylist} className={`${btn.base} ${btn.md} ${btn.danger}`}>Delete</button>
+            {/* Hide Delete for liked */}
+            {!isLikedPlaylist && (
+              <button onClick={deletePlaylist} className={`${btn.base} ${btn.md} ${btn.danger}`}>Delete</button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* TRACK CARDS — smaller, more columns, safe bottom space */}
+      {/* TRACK CARDS */}
       <div className="mt-4 grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
         {playerQueue.length === 0 ? (
           <div className="col-span-full rounded-xl border border-white/10 bg-white/[0.03] p-4 text-white/70">
@@ -246,19 +268,14 @@ export default function PlaylistDetail() {
                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-2 hover:border-white/20"
               >
-                {/* Cover (aspect-video to keep it short) */}
                 <div className="relative aspect-video w-full overflow-hidden rounded-lg ring-1 ring-inset ring-white/10">
-                  {/* Duration pill */}
                   <div className="absolute right-2 bottom-2 z-10">
                     <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/45 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur-md">
                       <Clock size={12} /> {fmtTime(d)}
                     </span>
                   </div>
-
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={t.coverUrl || '/logo.jpeg'} alt="" className="h-full w-full object-cover" />
-
-                  {/* Play overlay */}
                   <button
                     onClick={() => setQueue(playerQueue, i)}
                     className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100 focus-visible:bg-black/30 focus-visible:opacity-100 outline-none"
@@ -270,13 +287,11 @@ export default function PlaylistDetail() {
                   </button>
                 </div>
 
-                {/* Meta */}
                 <div className="mt-2">
                   <div className="truncate text-sm font-medium" title={t.title}>{t.title}</div>
                   <div className="truncate text-[11px] text-white/60">{t.artist || ''}</div>
                 </div>
 
-                {/* Actions */}
                 <div className="mt-2 flex items-center justify-between">
                   <button onClick={() => setQueue(playerQueue, i)} className={`${btn.base} ${btn.tiny} ${btn.glass}`}>Play</button>
                   <button onClick={() => removeFromPlaylist(t.publicId)} className={`${btn.base} ${btn.tiny} ${btn.danger}`}>Remove</button>
@@ -315,7 +330,6 @@ export default function PlaylistDetail() {
                 className="mb-3 w-full rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-sm outline-none placeholder:text-white/40 focus:border-white/20"
               />
 
-              {/* list inside panel stays scrollable independently */}
               {!candidates.length ? (
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-sm text-white/60">
                   No more tracks to add.
@@ -334,7 +348,10 @@ export default function PlaylistDetail() {
                           <div className="truncate text-xs text-white/60">{t.artist || ''}</div>
                         </div>
                       </div>
-                      <button onClick={() => addToPlaylist(t.publicId)} className={`${btn.base} ${btn.tiny} ${btn.primary}`}>
+                      <button
+                        onClick={() => (isLikedPlaylist ? like(t.publicId) : addToPlaylist(t.publicId))}
+                        className={`${btn.base} ${btn.tiny} ${btn.primary}`}
+                      >
                         <Plus size={14} /> Add
                       </button>
                     </div>

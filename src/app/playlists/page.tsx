@@ -36,17 +36,42 @@ export default function PlaylistsPage() {
 
   const trackMap = useMemo(() => new Map(tracks.map((t) => [t.publicId, t])), [tracks]);
 
+  // Ensure playlists + tracks; also ensure "liked" exists with default cover
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
+
         const [plRes, trRes] = await Promise.all([
           fetch('/api/playlists', { cache: 'no-store' }),
           fetch('/api/tracks', { cache: 'no-store' }),
         ]);
         const [pl, tr] = await Promise.all([plRes.json(), trRes.json()]);
-        setPlaylists(Array.isArray(pl) ? pl : []);
-        setTracks(Array.isArray(tr) ? tr : []);
+        const lists: Playlist[] = Array.isArray(pl) ? pl : [];
+        const allTracks: Track[] = Array.isArray(tr) ? tr : [];
+        setTracks(allTracks);
+
+        // Ensure liked exists with default cover
+        const liked = lists.find((x) => x.id === 'liked' || x.name?.toLowerCase() === 'liked songs');
+        if (!liked) {
+          await fetch('/api/playlists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: 'liked', name: 'Liked songs', coverUrl: '/liked.png' }),
+          }).catch(() => {});
+          const ref = await fetch('/api/playlists', { cache: 'no-store' }).then((r) => r.json());
+          setPlaylists(Array.isArray(ref) ? ref : lists);
+        } else if (!liked.coverUrl) {
+          await fetch('/api/playlists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: liked.id, name: 'Liked songs', coverUrl: '/liked.png' }),
+          }).catch(() => {});
+          const ref = await fetch('/api/playlists', { cache: 'no-store' }).then((r) => r.json());
+          setPlaylists(Array.isArray(ref) ? ref : lists);
+        } else {
+          setPlaylists(lists);
+        }
       } catch (e: any) {
         setError(e?.message || 'Failed to load');
       } finally {
@@ -90,7 +115,7 @@ export default function PlaylistsPage() {
     try {
       if (!name.trim()) return;
       setCreating(true);
-      const coverUrl = await uploadCoverIfAny();
+      const coverUrl = await uploadCoverIfAny(); // keep user's explicit cover if chosen
       const res = await fetch('/api/playlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,6 +144,7 @@ export default function PlaylistsPage() {
 
   async function remove(id: string) {
     try {
+      if (id === 'liked') return; // prevent deleting liked in UI
       if (!confirm('Delete this playlist?')) return;
       const res = await fetch(`/api/playlists/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`Delete failed: HTTP ${res.status}`);
@@ -137,6 +163,17 @@ export default function PlaylistsPage() {
     }));
     setQueue(q, 0);
   }
+
+  // Pin "liked" at the front
+  const sorted = useMemo(() => {
+    const list = [...playlists];
+    const idx = list.findIndex((p) => p.id === 'liked' || p.name?.toLowerCase() === 'liked songs');
+    if (idx > 0) {
+      const [liked] = list.splice(idx, 1);
+      list.unshift(liked);
+    }
+    return list;
+  }, [playlists]);
 
   const Cards = () => {
     if (loading) {
@@ -161,9 +198,15 @@ export default function PlaylistsPage() {
 
     return (
       <div className="grid gap-4 grid-cols-2 md:gap-5 md:grid-cols-3 lg:grid-cols-4">
-        {playlists.map((p) => {
+        {sorted.map((p) => {
+          const isLiked = p.id === 'liked' || p.name?.toLowerCase() === 'liked songs';
           const first = p.itemIds[0] ? trackMap.get(p.itemIds[0]) : undefined;
-          const cover = p.coverUrl || first?.coverUrl || '/logo.jpeg';
+
+          // Only liked uses fixed default; others keep original fallback to first track cover
+          const cover = isLiked
+            ? (p.coverUrl || '/logo.jpeg')
+            : (p.coverUrl || first?.coverUrl || '/logo.jpeg');
+
           const count = p.itemIds.filter((id) => trackMap.has(id)).length;
 
           return (
@@ -173,14 +216,16 @@ export default function PlaylistsPage() {
               transition={{ type: 'spring', stiffness: 400, damping: 30 }}
               className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 hover:border-white/20"
             >
-              {/* Delete */}
-              <button
-                onClick={() => remove(p.id)}
-                className={`${btn.base} ${btn.icon} ${btn.danger} absolute right-2 top-2 z-10 rounded-md`}
-                title="Delete playlist"
-              >
-                <Trash2 size={14} />
-              </button>
+              {/* Delete (hidden for liked) */}
+              {!isLiked && (
+                <button
+                  onClick={() => remove(p.id)}
+                  className={`${btn.base} ${btn.icon} ${btn.danger} absolute right-2 top-2 z-10 rounded-md`}
+                  title="Delete playlist"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
 
               {/* Cover */}
               <div className="relative aspect-[4/3] md:aspect-square w-full overflow-hidden rounded-lg ring-1 ring-inset ring-white/10">
@@ -211,18 +256,14 @@ export default function PlaylistsPage() {
 
               {/* Meta + actions */}
               <div className="mt-2">
-                <h3 className="truncate text-sm font-semibold" title={p.name}>{p.name}</h3>
+                <h3 className="truncate text-sm font-semibold" title={p.name}>
+                  {isLiked ? 'Liked songs' : p.name}
+                </h3>
                 <div className="mt-1 flex items-center gap-2">
-                  <button
-                    onClick={() => playAll(p)}
-                    className={`${btn.base} ${btn.tiny} ${btn.primary}`}
-                  >
+                  <button onClick={() => playAll(p)} className={`${btn.base} ${btn.tiny} ${btn.primary}`}>
                     Play
                   </button>
-                  <Link
-                    href={`/playlists/${p.id}`}
-                    className={`${btn.base} ${btn.tiny} ${btn.glass}`}
-                  >
+                  <Link href={`/playlists/${p.id}`} className={`${btn.base} ${btn.tiny} ${btn.glass}`}>
                     Open
                   </Link>
                 </div>

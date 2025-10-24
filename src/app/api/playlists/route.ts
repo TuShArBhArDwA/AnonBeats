@@ -24,27 +24,36 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const name: string | undefined = body?.name?.trim();
-    const coverUrl: string | undefined = typeof body?.coverUrl === 'string' && body?.coverUrl?.trim()
-      ? body.coverUrl.trim()
-      : undefined;
-    const requestedId: string | undefined = typeof body?.id === 'string' && body?.id?.trim()
-      ? body.id.trim()
-      : undefined;
+    const requestedId: string | undefined =
+      typeof body?.id === 'string' && body?.id?.trim() ? body.id.trim() : undefined;
 
     if (!name) {
       return NextResponse.json({ error: 'Name required' }, { status: 400 });
     }
 
+    const isLiked =
+      (requestedId && requestedId.toLowerCase() === 'liked') ||
+      name.toLowerCase() === 'liked songs';
+
+    // Only liked gets a forced default cover; others leave cover undefined unless provided
+    const coverUrl: string | undefined =
+      typeof body?.coverUrl === 'string' && body.coverUrl.trim()
+        ? body.coverUrl.trim()
+        : (isLiked ? '/logo.jpeg' : undefined);
+
     const store = await loadStore();
     store.playlists = Array.isArray(store.playlists) ? store.playlists : [];
 
-    // If a specific id is requested, be idempotent
     if (requestedId) {
       const existing = store.playlists.find((p: any) => p.id === requestedId);
       if (existing) {
-        // Optionally update name/cover if provided
+        // Update name/cover only if provided, and only force cover for liked
         if (name && existing.name !== name) existing.name = name;
-        if (coverUrl) existing.coverUrl = coverUrl;
+        if (isLiked && (!existing.coverUrl || coverUrl)) {
+          existing.coverUrl = coverUrl || existing.coverUrl || '/logo.jpeg';
+        } else if (coverUrl) {
+          existing.coverUrl = coverUrl;
+        }
         await saveStore(store);
         return NextResponse.json(existing);
       }
@@ -55,7 +64,7 @@ export async function POST(req: Request) {
       name,
       createdAt: Date.now(),
       itemIds: [] as string[],
-      coverUrl,
+      coverUrl, // undefined for normal playlists unless user provided it; '/logo.jpeg' for liked
     };
 
     store.playlists = [p, ...store.playlists];

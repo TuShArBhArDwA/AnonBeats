@@ -15,7 +15,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const p = store.playlists.find((x) => x.id === id);
     if (!p) return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
 
-    if (!p.itemIds.includes(publicId)) p.itemIds.push(publicId);
+    // Dedupe
+    p.itemIds = p.itemIds.filter((pid) => pid !== publicId);
+    // For liked, put newest first; for others, append
+    if (id === 'liked') p.itemIds.unshift(publicId);
+    else p.itemIds.push(publicId);
+
     await saveStore(store);
     return NextResponse.json({ ok: true, itemIds: p.itemIds });
   } catch (e: any) {
